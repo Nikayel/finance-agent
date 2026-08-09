@@ -133,8 +133,8 @@ deliberately did not.
 |---|---|---|
 | 1 | Package + CLI shell | ✅ done |
 | 2 | Sealed datasets + ledger store | ✅ done |
-| 3 | Execution cell (isolation, rlimits, watchdog) | 🚧 in progress |
-| 4 | Time-gated protocol + `Market` client | ⬜ |
+| 3 | Execution cell (isolation, rlimits, watchdog) | ✅ done |
+| 4 | Time-gated protocol + `Market` client | 🚧 in progress |
 | 5 | Adversarial suite — *human-written attacks* | ⬜ |
 | 6 | Determinism hunt + `sbx verify` | ⬜ |
 | 7 | The one-command demo | ⬜ |
