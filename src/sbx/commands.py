@@ -122,8 +122,22 @@ def run(args: argparse.Namespace) -> int:
     print(f"  {record['ticks']} ticks")
     print(f"  result {record['result_hash']}")
 
+    if result.report.stderr.strip():
+        # The cell points the strategy's own prints here, so this is whatever
+        # it had to say for itself — including the traceback when it died.
+        print("  the strategy said:")
+        for line in result.report.stderr.rstrip().splitlines():
+            print(f"    {line}")
+
     if _uncontained(record["containment"]):
         _warn_uncontained(record["run_id"])
+
+    if record["outcome"] == "stopped_early":
+        print(
+            f"sbx: {record['run_id']} stopped itself after {record['ticks']} "
+            f"ticks, before the journal ran out",
+            file=sys.stderr,
+        )
 
     if result.succeeded:
         return EXIT_OK

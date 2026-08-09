@@ -293,9 +293,18 @@ def test_a_strategy_that_raises_fails_cleanly(
         "run", str(strategy), "--data", sealed_data, "--seed", str(SEED)
     )
 
-    # The strategy's own traceback belongs to the cell; the host reports that
-    # the run did not complete and nothing else.
-    assert_clean_failure(result)
+    # Two different tracebacks, and only one of them is a bug. sbx's own would
+    # be it admitting an unexpected failure mode, so stderr stays a single
+    # diagnosing line. The *strategy's* is the run's output — the most useful
+    # thing sbx can hand back to whoever wrote it — so it belongs on stdout
+    # with the rest of the report.
+    assert result.returncode == EXIT_ERROR
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "Traceback" not in result.stderr
+    assert "boom" in result.stderr
+    assert "Traceback" in result.stdout
+    assert "the strategy said" in result.stdout
+
     assert_contained_run_was_recorded()
     assert sbx_cli("ls").returncode == EXIT_OK
 

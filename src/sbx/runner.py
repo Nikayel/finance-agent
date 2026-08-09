@@ -51,6 +51,9 @@ _CELL_MODULES = ("__init__.py", "errors.py", "canonical.py", "protocol.py", "run
 # meaningful, and a bound on how much work one frame can make the host do.
 MAX_ORDERS_PER_DECISION = 64
 
+# Outcomes where the strategy decided when to stop, rather than being stopped.
+RAN_OUTCOMES = ("completed", "stopped_early")
+
 _RECORD_KEYS = (
     "kind",
     "run_id",
@@ -82,7 +85,13 @@ class RunResult:
 
     @property
     def succeeded(self) -> bool:
-        return self.record["outcome"] == "completed"
+        """Whether the strategy ran on its own terms rather than being stopped.
+
+        A strategy that returns early chose to; that is a different result from
+        running the journal out, which is why it has its own outcome and its
+        own hash, but it is not a failed invocation.
+        """
+        return self.record["outcome"] in RAN_OUTCOMES
 
 
 def cell_attachments() -> dict[str, Path]:
