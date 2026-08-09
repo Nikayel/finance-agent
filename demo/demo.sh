@@ -41,7 +41,20 @@ DATA="$(ls "$HOME/.sbx/datasets")"
 
 say "2. a strategy goes looking for data it has not been shown"
 note "This is the attack the whole architecture is built against."
-"$SBX" run "$REPO_ROOT/demo/peeker.py" --data "${DATA:0:8}" --seed 1
+PEEKED="$("$SBX" run "$REPO_ROOT/demo/peeker.py" --data "${DATA:0:8}" --seed 1 2>&1)"
+printf '%s\n' "$PEEKED"
+if printf '%s' "$PEEKED" | grep -q "GOT IN"; then
+    # Say the true thing rather than the scripted one. On a platform with no
+    # filesystem confinement some of those routes open, and a demo that
+    # narrated "every route refused" over the top of "GOT IN" would be doing
+    # exactly what this project exists to argue against.
+    note ""
+    note "Some routes opened, and sbx marked the run UNCONTAINED above."
+    note "This platform has no filesystem confinement -- that is macOS-only in"
+    note "v1, and the README says so. The gate itself still holds: the next"
+    note "record has not been written to the pipe, so it is not in the cell's"
+    note "memory. But here that is the only thing holding it."
+fi
 
 say "3. a strategy with a great-looking number that came from nowhere"
 note "Nothing malicious. It sizes its orders from the wall clock, which is the"
