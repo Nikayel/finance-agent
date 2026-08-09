@@ -29,12 +29,15 @@ def _uncontained(containment: object) -> bool:
     return not FULL_CONTAINMENT.issubset(set(containment))
 
 
-def _warn_uncontained(run_id: str) -> None:
+def _report_uncontained() -> None:
+    """On stdout, with the rest of the report.
+
+    Containment is a fact about the run, in the same way the fill count is —
+    not an error. stderr stays exactly one line: what went wrong.
+    """
     print(
-        f"sbx: {run_id} ran without network or filesystem confinement, so the "
-        f"strategy could have read the sealed data directly. Treat the result "
-        f"as unverified.",
-        file=sys.stderr,
+        "  UNCONTAINED: no network or filesystem confinement on this platform, "
+        "so the strategy could have read the sealed data directly"
     )
 
 
@@ -130,7 +133,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"    {line}")
 
     if _uncontained(record["containment"]):
-        _warn_uncontained(record["run_id"])
+        _report_uncontained()
 
     if record["outcome"] == "stopped_early":
         print(
@@ -164,7 +167,7 @@ def verify(args: argparse.Namespace) -> int:
         print(f"  first divergence: {result.divergence}")
 
     if _uncontained(verification.find_run(result.run_id).get("containment")):
-        _warn_uncontained(result.run_id)
+        _report_uncontained()
 
     return EXIT_OK if result.verdict == "REPRODUCED" else EXIT_ERROR
 
