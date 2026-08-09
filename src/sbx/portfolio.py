@@ -25,6 +25,14 @@ from .errors import SbxError
 
 SIDES = ("BUY", "SELL")
 
+# A size must be a plausible quantity, not merely a finite Decimal.
+# `Decimal("1E-20000000")` is finite and positive and arrives in 22 bytes; its
+# canonical text is twenty million characters, materialised inside the *host*,
+# which unlike the cell has no resource limits. Measured: 1 GB of ASCII from
+# one order. The bound is what stands between a 22-byte frame and the machine.
+MAX_DECIMAL_PLACES = 18
+MAX_MAGNITUDE_DIGITS = 18
+
 
 @dataclass(frozen=True)
 class Order:
@@ -66,6 +74,14 @@ def parse_order(raw: Any, index: int) -> Order:
         raise SbxError(f"{where}: size {size!r} is not a decimal quantity") from None
     if not quantity.is_finite() or quantity <= 0:
         raise SbxError(f"{where}: size must be positive and finite, not {size!r}")
+    if quantity.as_tuple().exponent < -MAX_DECIMAL_PLACES:
+        raise SbxError(
+            f"{where}: size has more than {MAX_DECIMAL_PLACES} decimal places"
+        )
+    if quantity.adjusted() > MAX_MAGNITUDE_DIGITS:
+        raise SbxError(
+            f"{where}: size is larger than {MAX_MAGNITUDE_DIGITS} digits"
+        )
 
     return Order(side=side, size=quantity)
 
@@ -84,15 +100,23 @@ class Portfolio:
         """Queue an order against the next trade."""
         self._pending.append(order)
 
-    def observe(self, event: Mapping[str, Any]) -> None:
-        """Show the portfolio one revealed event, filling anything waiting."""
+    def observe(self, event: Mapping[str, Any], now: str) -> None:
+        """Show the portfolio one revealed event, filling anything waiting.
+
+        A fill is stamped with the *simulated* time — `now` — and not with the
+        exchange's own `executed_at`. Those differ: exchange clocks are not
+        monotonic, so a late-arriving trade carries a stamp earlier than the
+        tick that revealed it. Writing that into the ledger would produce fills
+        dated before the decisions that caused them, which is indistinguishable
+        from real look-ahead in the one artefact meant to disprove it.
+        """
         if event.get("type") != "trade":
             return
         try:
             price = Decimal(str(event["price"]))
         except (InvalidOperation, KeyError, ValueError) as error:
             raise SbxError(f"trade has no usable price: {error}") from error
-        at = str(event.get("executed_at", ""))
+        at = now
 
         self.last_price = price
         if not self._pending:

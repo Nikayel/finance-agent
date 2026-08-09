@@ -47,6 +47,10 @@ CELL_ENTRY = "main.py"
 # framing, and the runtime that wraps them in a Market.
 _CELL_MODULES = ("__init__.py", "errors.py", "canonical.py", "protocol.py", "runtime.py")
 
+# One tick's worth of market orders on one instrument. Generous for anything
+# meaningful, and a bound on how much work one frame can make the host do.
+MAX_ORDERS_PER_DECISION = 64
+
 _RECORD_KEYS = (
     "kind",
     "run_id",
@@ -57,6 +61,7 @@ _RECORD_KEYS = (
     "env_fingerprint",
     "outcome",
     "containment",
+    "ticks",
     "fills",
     "pnl",
     "position",
@@ -133,6 +138,7 @@ class Feeder:
         self._seed = seed
         self.portfolio = portfolio.Portfolio()
         self.ticks_sent = 0
+        self.exhausted = False
         self.failure: str | None = None
 
     def talk(self, to_cell: BinaryIO, from_cell: BinaryIO) -> None:
@@ -165,7 +171,7 @@ class Feeder:
             # Fill first: an order placed at an earlier tick fills at *this*
             # trade, which the strategy has not been shown yet.
             for event in tick.events:
-                self.portfolio.observe(event)
+                self.portfolio.observe(event, tick.now)
 
             protocol.write_frame(
                 to_cell, {"m": "tick", "now": tick.now, "events": list(tick.events)}
@@ -184,12 +190,28 @@ class Feeder:
                 return
             if kind != "decision":
                 raise ProtocolError(f"cell sent {kind!r} where a decision was due")
+            if reply.get("now") != tick.now:
+                # The ordering that makes look-ahead impossible is a property
+                # of this loop's shape. Checking it turns that from something
+                # true by accident into something the host would notice.
+                raise ProtocolError(
+                    f"cell answered tick {reply.get('now')!r} while {tick.now!r} "
+                    f"was on the wire"
+                )
 
             orders = reply.get("orders", [])
             if not isinstance(orders, list):
                 raise ProtocolError("a decision's orders must be a list")
+            if len(orders) > MAX_ORDERS_PER_DECISION:
+                raise ProtocolError(
+                    f"decision carries {len(orders)} orders, over the "
+                    f"{MAX_ORDERS_PER_DECISION} allowed for one tick"
+                )
             for index, raw in enumerate(orders, start=1):
                 self.portfolio.submit(portfolio.parse_order(raw, index))
+        else:
+            # The for-loop ran the journal out rather than breaking on `done`.
+            self.exhausted = True
 
         protocol.write_frame(to_cell, {"m": "stop"})
 
@@ -226,6 +248,9 @@ def execute(
     # The identity of a result is the result, not the run. Timings and memory
     # differ between two runs of identical inputs, so they are recorded and
     # deliberately left out of the hash.
+    # `ticks` is in the hash, not just the record. A strategy that returns
+    # after 200 of 200,000 ticks — stopping on a peak — would otherwise be
+    # byte-indistinguishable from one that ran the whole journal.
     result_hash = canonical.hash_object(
         {
             "code": code_hash,
@@ -234,6 +259,7 @@ def execute(
             "pnl": book.pnl,
             "position": book.position,
             "seed": seed,
+            "ticks": feeder.ticks_sent,
         }
     )
 
@@ -241,6 +267,10 @@ def execute(
         outcome = report.outcome
     elif feeder.failure is not None:
         outcome = "failed"
+    elif not feeder.exhausted:
+        # The strategy chose its own stopping point. That is allowed, and it is
+        # not the same result as running the data out.
+        outcome = "stopped_early"
     else:
         outcome = "completed"
 
@@ -254,6 +284,7 @@ def execute(
         "env_fingerprint": env_fingerprint(),
         "outcome": outcome,
         "containment": list(report.containment),
+        "ticks": feeder.ticks_sent,
         "fills": fills,
         "pnl": book.pnl,
         "position": book.position,

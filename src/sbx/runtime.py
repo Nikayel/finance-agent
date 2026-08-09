@@ -94,8 +94,12 @@ class Market:
                 # tick. Whatever the strategy did -- returned, broke out of the
                 # loop, raised -- it gets one, or both sides wait forever.
                 pending, self._orders = self._orders, []
+                # The tick being answered is named in the answer, so the host
+                # can check the conversation is still in step rather than
+                # trusting that it must be.
                 protocol.write_frame(
-                    self._to_host, {"m": "decision", "orders": pending}
+                    self._to_host,
+                    {"m": "decision", "now": self.now, "orders": pending},
                 )
 
 

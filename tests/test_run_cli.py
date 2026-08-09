@@ -58,6 +58,11 @@ RUN_KEYS = {
     "env_fingerprint",
     "outcome",
     "containment",
+    # How far the run actually got. In the record *and* in result_hash: a
+    # strategy that returns after 200 of 200,000 ticks, stopping on a peak,
+    # would otherwise be byte-indistinguishable from one that ran the journal
+    # out.
+    "ticks",
     "fills",
     "pnl",
     "position",
