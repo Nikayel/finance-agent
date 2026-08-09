@@ -12,7 +12,6 @@ import sys
 
 from . import canonical, ledger, runner, store
 from . import verify as verification
-from .errors import SbxError
 from .exits import EXIT_ERROR, EXIT_OK
 
 _BYTE_UNITS = ("B", "KiB", "MiB", "GiB", "TiB")
@@ -166,16 +165,9 @@ def verify(args: argparse.Namespace) -> int:
     if result.divergence is not None:
         print(f"  first divergence: {result.divergence}")
 
-    if _uncontained(verification.find_run(result.run_id).get("containment")):
+    if _uncontained(result.containment):
         _report_uncontained()
 
     return EXIT_OK if result.verdict == "REPRODUCED" else EXIT_ERROR
 
 
-def pending(milestone: int):
-    """A handler for a verb whose implementation is still ahead of us."""
-
-    def handler(args: argparse.Namespace) -> int:
-        raise SbxError(f"{args.verb}: not implemented yet (milestone {milestone})")
-
-    return handler

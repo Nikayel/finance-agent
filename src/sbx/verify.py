@@ -45,6 +45,10 @@ class Verification:
     replayed_hash: str | None
     divergence: str | None
     same_environment: bool
+    #: What the original run actually enforced. Carried here so a caller can
+    #: say whether the result is worth anything without re-reading the ledger
+    #: for a record this function already had in its hand.
+    containment: tuple[str, ...]
 
 
 def find_run(run_id: str) -> dict[str, Any]:
@@ -83,6 +87,7 @@ def first_divergence(
 def verify(run_id: str, *, limits: Limits = Limits()) -> Verification:
     """Re-execute a recorded run and say what happened, precisely."""
     record = find_run(run_id)
+    containment = tuple(record.get("containment") or ())
     if record.get("result_hash") is None:
         raise SbxError(
             f"{run_id} was stopped before it finished ({record.get('outcome')}), "
@@ -103,10 +108,13 @@ def verify(run_id: str, *, limits: Limits = Limits()) -> Verification:
                 f"run recorded, so nothing was re-executed"
             ),
             same_environment=same_environment,
+            containment=containment,
         )
 
     strategy = store.code_path(str(record["code"]))
-    result = runner.execute(strategy, dataset, int(record["seed"]), limits=limits)
+    result = runner.execute(
+        strategy, dataset, int(record["seed"]), limits=limits, run_id=run_id
+    )
 
     # Through the canonical encoding, so the replay is compared in the same
     # form the ledger stores: Decimals as their canonical text, not as objects
@@ -122,6 +130,7 @@ def verify(run_id: str, *, limits: Limits = Limits()) -> Verification:
             replayed_hash=replayed_hash,
             divergence=None,
             same_environment=same_environment,
+            containment=containment,
         )
 
     return Verification(
@@ -132,4 +141,5 @@ def verify(run_id: str, *, limits: Limits = Limits()) -> Verification:
         divergence=first_divergence(record, replayed)
         or "the result hash differs while every recorded field matches",
         same_environment=same_environment,
+        containment=containment,
     )

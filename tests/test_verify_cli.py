@@ -218,6 +218,10 @@ def test_a_verification_says_exactly_what_it_is_documented_to_say() -> None:
         "replayed_hash",
         "divergence",
         "same_environment",
+        # What the original run enforced. A verdict about a run that had no
+        # filesystem confinement is a different claim from one that did, and a
+        # caller should not have to re-read the ledger to find that out.
+        "containment",
     ]
 
 

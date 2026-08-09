@@ -231,8 +231,14 @@ def execute(
     seed: int,
     *,
     limits: Limits = Limits(),
+    run_id: str | None = None,
 ) -> RunResult:
-    """Run one strategy against one sealed dataset and build its ledger record."""
+    """Run one strategy against one sealed dataset and build its ledger record.
+
+    `run_id` is minted from the ledger when omitted. A replay passes the id it
+    is replaying: verify has no use for a fresh one, and asking for it would
+    mean parsing the whole ledger again to answer a question nobody asked.
+    """
     # Keep the source before running it: a tuple that names its code by hash
     # is only re-executable if that hash still resolves to something.
     # `keep_code` is what validates the path, so there is one check, not two.
@@ -293,7 +299,7 @@ def execute(
 
     record = {
         "kind": "run",
-        "run_id": ledger.next_run_id(),
+        "run_id": run_id if run_id is not None else ledger.next_run_id(),
         "data": dataset.sha256,
         "code": code_hash,
         "seed": seed,
