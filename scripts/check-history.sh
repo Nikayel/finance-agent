@@ -11,7 +11,12 @@
 # with PYTHONPATH pointed at that worktree's `src`, which shadows the editable
 # install — so one venv checks the whole history instead of one venv per commit.
 #
+# The cost is commits × suite runtime and both grow, so CI replays only the
+# commits a push introduced. A full replay is a deliberate, occasional act:
+# at ~750 tests and ~30s a run, all of history is tens of minutes.
+#
 # Usage:  scripts/check-history.sh [<rev-range>]     (default: all of HEAD)
+#         scripts/check-history.sh HEAD~5..HEAD      (just the recent ones)
 #         PYTHON=/path/to/python3.11 scripts/check-history.sh
 
 set -uo pipefail
