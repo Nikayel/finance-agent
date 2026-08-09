@@ -42,6 +42,17 @@ jobs:
       - name: Smoke
         run: scripts/smoke.sh
 
+  demo:
+    name: the demo runs on a fresh clone
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Demo
+        run: demo/demo.sh
+
   history:
     name: every commit is as red or green as it claims
     runs-on: macos-latest
