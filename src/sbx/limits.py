@@ -24,7 +24,6 @@ from dataclasses import dataclass
 
 # Caps that exist on every POSIX target and that both kernels honour.
 _RLIMITS = (
-    ("cpu_seconds", "RLIMIT_CPU"),
     ("open_files", "RLIMIT_NOFILE"),
     ("processes", "RLIMIT_NPROC"),
     ("file_size_bytes", "RLIMIT_FSIZE"),
@@ -51,6 +50,19 @@ def apply_rlimits(limits: Limits) -> None:
     useful form, and the containment that *did* apply is still worth having.
     """
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+
+    # CPU gets a second of headroom between its soft and hard limits. With them
+    # equal, Linux reaches both in the same instant and delivers SIGKILL, so
+    # the kill is reported as an anonymous "killed" rather than as the CPU
+    # limit doing its job. A second of grace gets SIGXCPU on both kernels, and
+    # the wall-clock watchdog is still there if the process ignores it.
+    try:
+        resource.setrlimit(
+            resource.RLIMIT_CPU, (limits.cpu_seconds, limits.cpu_seconds + 1)
+        )
+    except (OSError, ValueError):  # pragma: no cover - platform dependent
+        pass
+
     for field, rlimit_name in _RLIMITS:
         rlimit = getattr(resource, rlimit_name, None)
         if rlimit is None:  # pragma: no cover - every target has these
