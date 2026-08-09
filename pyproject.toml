@@ -20,3 +20,11 @@ where = ["src"]
 
 [tool.setuptools.dynamic]
 version = { attr = "sbx.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# A warning is a test result. Determinism work in particular tends to arrive
+# first as a DeprecationWarning nobody read.
+filterwarnings = ["error"]
+addopts = "--strict-markers --strict-config"
+xfail_strict = true
