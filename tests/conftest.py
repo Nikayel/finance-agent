@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+import journals
+
 CONSOLE_SCRIPT = Path(sys.executable).parent / "sbx"
 
 Run = Callable[..., "subprocess.CompletedProcess[str]"]
@@ -39,3 +41,25 @@ def sbx_cli() -> Run:
         )
 
     return run
+
+
+@pytest.fixture
+def sbx_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect ``~/.sbx`` at a throwaway directory for one test.
+
+    sbx resolves its home from ``Path.home()`` on every call and caches
+    nothing, so moving ``HOME`` is enough — and because ``monkeypatch.setenv``
+    mutates ``os.environ``, subprocesses spawned by the test inherit the same
+    redirect. No sbx-specific environment knob exists, on purpose: a config
+    surface that only tests use is still a config surface.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    return home / ".sbx"
+
+
+@pytest.fixture
+def journal(tmp_path: Path) -> Path:
+    """A journal file in the upstream dialect, covering every record type."""
+    return journals.write_journal(tmp_path / "events.jsonl")
