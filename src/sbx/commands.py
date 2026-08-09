@@ -8,10 +8,11 @@ belongs in the component modules, not here.
 from __future__ import annotations
 
 import argparse
+import sys
 
-from . import ledger, store
+from . import canonical, ledger, runner, store
 from .errors import SbxError
-from .exits import EXIT_OK
+from .exits import EXIT_ERROR, EXIT_OK
 
 _BYTE_UNITS = ("B", "KiB", "MiB", "GiB", "TiB")
 
@@ -70,10 +71,41 @@ def ls(args: argparse.Namespace) -> int:
     runs = ledger.entries_of("run")
     if not runs:
         print("  (none)")
-    for run in runs:
-        print(f"  {run['run_id']}  {run['strategy']}  {run['data'][:12]}  seed {run['seed']}")
+    for entry in runs:
+        print(
+            f"  {entry['run_id']}  {entry['outcome']:<16}  "
+            f"data {entry['data'][:12]}  code {entry['code'][:12]}  "
+            f"seed {entry['seed']}  pnl {entry['pnl']}"
+        )
 
     return EXIT_OK
+
+
+def run(args: argparse.Namespace) -> int:
+    """Execute a strategy against a sealed dataset and record what happened."""
+    dataset = store.resolve(args.data)
+    result = runner.execute(args.strategy, dataset, args.seed)
+    record = ledger.append(result.record)
+
+    print(f"{record['run_id']}  {record['outcome']}")
+    print(
+        f"  data {dataset.short}  code {record['code'][:12]}  seed {record['seed']}"
+    )
+    print(
+        f"  {len(record['fills'])} fills, "
+        f"pnl {canonical.decimal_text(record['pnl'])}, "
+        f"position {canonical.decimal_text(record['position'])}"
+    )
+    print(f"  result {record['result_hash']}")
+
+    if result.succeeded:
+        return EXIT_OK
+    # A contained strategy is a successful containment and a failed run. Say so
+    # on stderr, having already written the run to the ledger: a run that
+    # failed is still something sbx did.
+    reason = result.failure or result.report.detail
+    print(f"sbx: {record['run_id']} did not complete: {reason}", file=sys.stderr)
+    return EXIT_ERROR
 
 
 def pending(milestone: int):

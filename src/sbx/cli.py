@@ -64,7 +64,7 @@ _COMMANDS: dict[str, Command] = {
     "run": Command(
         help="execute a strategy in the sealed cell and record the run",
         add_arguments=_run_arguments,
-        handler=commands.pending(4),
+        handler=commands.run,
     ),
     "verify": Command(
         help="re-execute a recorded run and diff it byte-for-byte",

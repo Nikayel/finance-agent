@@ -33,9 +33,12 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 from . import sandbox
 from .errors import SbxError
@@ -55,7 +58,12 @@ STRATEGY_FILENAME = "strategy.py"
 _POLL_SECONDS = 0.02
 _RSS_POLL_SECONDS = 0.05
 _DRAIN_GRACE_SECONDS = 2.0
+_DIALOGUE_JOIN_SECONDS = 5.0
 _READ_BYTES = 65536
+
+# The host side of a conversation with the cell: given the cell's stdin and
+# stdout, talk to it until it stops. Run on its own thread — see _talk.
+Dialogue = Callable[[BinaryIO, BinaryIO], None]
 
 # `ru_maxrss` is bytes on macOS and kilobytes on Linux. Getting this wrong is
 # a factor of 1024 in a number people will quote.
@@ -197,8 +205,46 @@ def _classify(
     return "failed", f"exited with status {exit_code}"
 
 
-def run(strategy_path: str | Path, *, limits: Limits = Limits()) -> CellReport:
-    """Execute a strategy file in a sealed cell and report what happened."""
+def _talk(dialogue: Dialogue, child: subprocess.Popen) -> None:
+    """Run the host side of the conversation on its own thread.
+
+    Blocking reads and writes are far easier to get right than a protocol state
+    machine woven into the watchdog loop, and this way the watchdog remains the
+    only thing that owns a deadline: when it kills the cell, these pipes break
+    and this thread falls out of its loop on its own.
+
+    A dialogue is expected to record its own failures — by the time an
+    exception escapes to here there is no one left to tell, and a thread that
+    dies noisily would take nothing useful with it.
+    """
+    try:
+        dialogue(child.stdin, child.stdout)
+    except BaseException:  # noqa: BLE001 - see docstring
+        pass
+    finally:
+        try:
+            if child.stdin is not None:
+                child.stdin.close()
+        except OSError:
+            pass
+
+
+def run(
+    strategy_path: str | Path,
+    *,
+    limits: Limits = Limits(),
+    attachments: Mapping[str, str | Path] | None = None,
+    entry: str = STRATEGY_FILENAME,
+    dialogue: Dialogue | None = None,
+) -> CellReport:
+    """Execute a strategy file in a sealed cell and report what happened.
+
+    `attachments` are extra files to place in the working directory, keyed by
+    the relative path they should take there — how the runtime and the wire
+    format reach the cell without it having any way to import them from
+    outside. `dialogue`, if given, is handed the cell's stdin and stdout and
+    talks to it while the watchdog runs.
+    """
     source = Path(strategy_path)
     if source.is_dir():
         raise SbxError(f"{source} is a directory, not a strategy")
@@ -209,6 +255,10 @@ def run(strategy_path: str | Path, *, limits: Limits = Limits()) -> CellReport:
     profile_path: Path | None = None
     try:
         shutil.copyfile(source, workdir / STRATEGY_FILENAME)
+        for relative, origin in (attachments or {}).items():
+            target = workdir / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(origin, target)
         if sandbox.available():
             handle, name = tempfile.mkstemp(prefix="sbx-profile-", suffix=".sb")
             profile_path = Path(name)
@@ -218,20 +268,26 @@ def run(strategy_path: str | Path, *, limits: Limits = Limits()) -> CellReport:
                 sb_file.write(
                     sandbox.profile(workdir, readable=[_interpreter().parent.parent])
                 )
-        return _execute(workdir, profile_path, limits)
+        return _execute(workdir, profile_path, limits, entry, dialogue)
     finally:
         if profile_path is not None:
             profile_path.unlink(missing_ok=True)
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _execute(workdir: Path, profile_path: Path | None, limits: Limits) -> CellReport:
-    argv = sandbox.wrap([str(_interpreter()), "-S", STRATEGY_FILENAME], profile_path)
+def _execute(
+    workdir: Path,
+    profile_path: Path | None,
+    limits: Limits,
+    entry: str,
+    dialogue: Dialogue | None,
+) -> CellReport:
+    argv = sandbox.wrap([str(_interpreter()), "-S", entry], profile_path)
     child = subprocess.Popen(
         argv,
         cwd=workdir,
         env=_environment(workdir),
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE if dialogue is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         preexec_fn=_preexec(limits),
@@ -239,8 +295,19 @@ def _execute(workdir: Path, profile_path: Path | None, limits: Limits) -> CellRe
 
     chunks: dict[str, list[bytes]] = {"stdout": [], "stderr": []}
     selector = selectors.DefaultSelector()
-    selector.register(child.stdout, selectors.EVENT_READ, "stdout")
+    if dialogue is None:
+        selector.register(child.stdout, selectors.EVENT_READ, "stdout")
+    # With a dialogue, stdout *is* the wire and belongs to the conversation.
+    # The cell's runtime points the strategy's own prints at stderr, so
+    # diagnostics still arrive here and a stray print cannot desynchronise it.
     selector.register(child.stderr, selectors.EVENT_READ, "stderr")
+
+    talker: threading.Thread | None = None
+    if dialogue is not None:
+        talker = threading.Thread(
+            target=_talk, args=(dialogue, child), name="sbx-dialogue", daemon=True
+        )
+        talker.start()
 
     deadline = time.monotonic() + limits.wall_seconds
     next_rss_poll = time.monotonic()
@@ -281,9 +348,16 @@ def _execute(workdir: Path, profile_path: Path | None, limits: Limits) -> CellRe
         _drain(selector, chunks)
     finally:
         selector.close()
-        for stream in (child.stdout, child.stderr):
+        if talker is not None:
+            # The cell is gone, so its end of the pipes is closed and the
+            # conversation cannot still be blocked on one.
+            talker.join(timeout=_DIALOGUE_JOIN_SECONDS)
+        for stream in (child.stdin, child.stdout, child.stderr):
             if stream is not None:
-                stream.close()
+                try:
+                    stream.close()
+                except OSError:  # pragma: no cover - already broken
+                    pass
         if status is None:
             # Leaving through an exception. Do not leave a live cell behind.
             _kill_group(child.pid)
