@@ -13,10 +13,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .errors import SbxError
+
 HOME_DIRNAME = ".sbx"
 DATASETS_DIRNAME = "datasets"
 CODE_DIRNAME = "code"
 LEDGER_FILENAME = "ledger.jsonl"
+
+
+def require_file(path: str | Path, noun: str) -> Path:
+    """Insist on a regular file, and say precisely which way it is wrong.
+
+    One definition, because the same three-line check had grown four copies
+    with three different answers: one reported a directory as missing, and one
+    accepted a fifo as a journal.
+    """
+    candidate = Path(path)
+    if candidate.is_dir():
+        raise SbxError(f"{candidate} is a directory, not a {noun}")
+    if not candidate.is_file():
+        raise SbxError(f"no such {noun}: {candidate}")
+    return candidate
 
 
 def sbx_home() -> Path:

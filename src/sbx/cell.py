@@ -40,8 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from . import sandbox
-from .errors import SbxError
+from . import paths, sandbox
 from .limits import Limits, apply_rlimits
 
 OUTCOMES: tuple[str, ...] = (
@@ -305,11 +304,7 @@ def run(
     outside. `dialogue`, if given, is handed the cell's stdin and stdout and
     talks to it while the watchdog runs.
     """
-    source = Path(strategy_path)
-    if source.is_dir():
-        raise SbxError(f"{source} is a directory, not a strategy")
-    if not source.is_file():
-        raise SbxError(f"no such strategy: {source}")
+    source = paths.require_file(strategy_path, "strategy")
 
     workdir = Path(tempfile.mkdtemp(prefix="sbx-cell-")).resolve()
     profile_path: Path | None = None

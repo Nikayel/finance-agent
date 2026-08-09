@@ -88,11 +88,7 @@ def seal(journal_path: str | Path) -> tuple[SealedDataset, bool]:
     Returns the dataset and whether this call is what created it, so callers
     can record a first sealing in the ledger without recording re-seals.
     """
-    source = Path(journal_path)
-    if source.is_dir():
-        raise SbxError(f"{source} is a directory, not a journal")
-    if not source.exists():
-        raise SbxError(f"no such journal: {source}")
+    source = paths.require_file(journal_path, "journal")
 
     size = source.stat().st_size
     if size == 0:
@@ -138,9 +134,7 @@ def keep_code(strategy_path: str | Path) -> tuple[str, Path]:
     to nothing the moment someone edits or deletes the file, and `sbx verify`
     could only ever check runs whose source happened to survive.
     """
-    source = Path(strategy_path)
-    if not source.is_file():
-        raise SbxError(f"no such strategy: {source}")
+    source = paths.require_file(strategy_path, "strategy")
 
     digest = canonical.hash_file(source)
     directory = paths.code_dir()

@@ -233,15 +233,10 @@ def execute(
     limits: Limits = Limits(),
 ) -> RunResult:
     """Run one strategy against one sealed dataset and build its ledger record."""
-    strategy = Path(strategy_path)
-    if strategy.is_dir():
-        raise SbxError(f"{strategy} is a directory, not a strategy")
-    if not strategy.is_file():
-        raise SbxError(f"no such strategy: {strategy}")
-
     # Keep the source before running it: a tuple that names its code by hash
     # is only re-executable if that hash still resolves to something.
-    code_hash, kept = store.keep_code(strategy)
+    # `keep_code` is what validates the path, so there is one check, not two.
+    code_hash, kept = store.keep_code(strategy_path)
     feeder = Feeder(journal_records(dataset.data_path), seed)
     report = cell.run(
         kept,
