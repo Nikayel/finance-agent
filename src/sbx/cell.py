@@ -288,6 +288,45 @@ def _talk(dialogue: Dialogue, child: subprocess.Popen, failures: list[str]) -> N
             pass
 
 
+def _report(
+    status: int | None,
+    usage: Any,
+    killed: tuple[str, str] | None,
+    chunks: dict[str, _Capture],
+    failures: list[str],
+    limits: Limits,
+) -> CellReport:
+    """Turn what the kernel said into what the caller is told.
+
+    Kept apart from the watchdog loop because it is a different altitude:
+    nothing here waits, signals or decides anything, and `_execute` was
+    stepping from `waitstatus_to_exitcode` into rusage unit conversion inside
+    one function.
+    """
+    failure = failures[0] if failures else None
+    if status is None:
+        exit_code: int | None = None
+        term_signal: int | None = None
+        outcome, detail = killed or ("killed", "the cell could not be collected")
+    else:
+        exit_code = None if os.WIFSIGNALED(status) else os.WEXITSTATUS(status)
+        term_signal = os.WTERMSIG(status) if os.WIFSIGNALED(status) else None
+        outcome, detail = _classify(killed, exit_code, term_signal, limits, failure)
+
+    return CellReport(
+        outcome=outcome,
+        exit_code=exit_code,
+        signal=term_signal,
+        detail=detail,
+        stdout=chunks["stdout"].text(),
+        stderr=chunks["stderr"].text(),
+        utime_us=int(round(usage.ru_utime * 1_000_000)) if usage else 0,
+        stime_us=int(round(usage.ru_stime * 1_000_000)) if usage else 0,
+        max_rss_bytes=usage.ru_maxrss * _MAXRSS_SCALE if usage else 0,
+        containment=sandbox.mechanisms(),
+    )
+
+
 def run(
     strategy_path: str | Path,
     *,
@@ -444,25 +483,4 @@ def _execute(
             os.waitstatus_to_exitcode(status) if status is not None else -signal.SIGKILL
         )
 
-    failure = failures[0] if failures else None
-    if status is None:
-        exit_code: int | None = None
-        term_signal: int | None = None
-        outcome, detail = killed or ("killed", "the cell could not be collected")
-    else:
-        exit_code = None if os.WIFSIGNALED(status) else os.WEXITSTATUS(status)
-        term_signal = os.WTERMSIG(status) if os.WIFSIGNALED(status) else None
-        outcome, detail = _classify(killed, exit_code, term_signal, limits, failure)
-
-    return CellReport(
-        outcome=outcome,
-        exit_code=exit_code,
-        signal=term_signal,
-        detail=detail,
-        stdout=chunks["stdout"].text(),
-        stderr=chunks["stderr"].text(),
-        utime_us=int(round(usage.ru_utime * 1_000_000)) if usage else 0,
-        stime_us=int(round(usage.ru_stime * 1_000_000)) if usage else 0,
-        max_rss_bytes=usage.ru_maxrss * _MAXRSS_SCALE if usage else 0,
-        containment=sandbox.mechanisms(),
-    )
+    return _report(status, usage, killed, chunks, failures, limits)
