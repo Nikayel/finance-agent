@@ -13,13 +13,11 @@ from sbx.cli import EXIT_ERROR, EXIT_USAGE, VERBS
 
 EXPECTED_VERBS = ("ls", "run", "seal", "verify")
 
-# One minimal, *valid* invocation per verb — enough to prove the argument
-# surface parses. None of them do any work yet.
-INVOCATIONS = {
-    "seal": ("seal", "journal.jsonl"),
+# Verbs whose implementation is still ahead of us. They must already parse
+# their real argument surface, then say plainly that they do nothing yet.
+PENDING_INVOCATIONS = {
     "run": ("run", "strategy.py", "--data", "deadbeef", "--seed", "42"),
     "verify": ("verify", "run-0001"),
-    "ls": ("ls",),
 }
 
 
@@ -47,9 +45,11 @@ def test_each_verb_has_its_own_help(sbx_cli, verb: str) -> None:
     assert verb in result.stdout
 
 
-@pytest.mark.parametrize("verb", EXPECTED_VERBS)
-def test_each_verb_parses_then_reports_not_implemented(sbx_cli, verb: str) -> None:
-    result = sbx_cli(*INVOCATIONS[verb])
+@pytest.mark.parametrize("verb", sorted(PENDING_INVOCATIONS))
+def test_each_pending_verb_parses_then_reports_not_implemented(
+    sbx_cli, verb: str
+) -> None:
+    result = sbx_cli(*PENDING_INVOCATIONS[verb])
     assert result.returncode == EXIT_ERROR
     assert "not implemented" in result.stderr.lower()
     # Failures never contaminate stdout, so callers can pipe it safely.
