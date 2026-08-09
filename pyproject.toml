@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sbx"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Cheat-proof research sandbox: look-ahead-impossible, byte-reproducible strategy runs"
 requires-python = ">=3.11"
 dependencies = []
@@ -17,3 +17,6 @@ sbx = "sbx.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "sbx.__version__" }
