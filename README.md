@@ -53,11 +53,11 @@ not been written into the cell's process memory yet. A strategy that walks
 is nothing to find.
 
 **2. Sealed execution cell.** One subprocess per run: an empty private working
-directory, `setrlimit` caps on CPU seconds, address space, file descriptors and
-process count, no network, and a host-side wall-clock watchdog that escalates
-to `SIGKILL`. Isolation is enforced at the OS boundary, never by in-process
-tricks like stripping builtins — those are escapable by construction and are
-treated as defence in depth at most.
+directory, `setrlimit` caps, no network, and a host-side watchdog that
+escalates to `SIGKILL`. Isolation is enforced at the OS boundary, never by
+in-process tricks like stripping builtins — those are escapable by
+construction and are treated as defence in depth at most. What is actually
+enforced is [spelled out below](#containment-precisely) rather than asserted.
 
 **3. Reproducibility ledger.** Every run is recorded as
 `(data_hash, code_hash, seed, sbx_version, env_fingerprint) → result`.
@@ -156,6 +156,52 @@ attacks were authored by the same process that built the gate proves nothing.
 That is the thesis of the product applied to its own construction: **AI-written
 code is worth exactly as much as the adversarial verification you put it
 through.**
+
+## Containment, precisely
+
+Every run records the containment that was **actually in force**, and the cell
+reports it back rather than implying it. A guarantee this table does not claim
+is a guarantee the code does not make.
+
+| What | macOS | Linux | How |
+|---|---|---|---|
+| No outbound TCP, no DNS | ✅ | ❌ *not in v1* | `sandbox-exec` Seatbelt profile, `(deny network*)` |
+| No reads of user-owned files (`$HOME`, `/etc`, other temp dirs, **`~/.sbx`**) | ✅ | ❌ *not in v1* | same profile |
+| No writes outside the private working directory | ✅ | ❌ *not in v1* | same profile |
+| CPU seconds | ✅ | ✅ | `RLIMIT_CPU`, killed with `SIGXCPU` |
+| Open file descriptors | ✅ | ✅ | `RLIMIT_NOFILE` |
+| Process creation (no forking, no shelling out) | ✅ | ✅ | `RLIMIT_NPROC` |
+| File size | ✅ | ✅ | `RLIMIT_FSIZE` |
+| Resident memory | ✅ | ✅ | host watchdog polls RSS and kills |
+| Wall clock, even against a `SIGTERM`-swallowing process | ✅ | ✅ | host watchdog, `killpg` + `SIGKILL` |
+| Cannot import the host package | ✅ | ✅ | base interpreter run with `-S`, so no site-packages |
+
+Three things in that table are deliberate and worth defending:
+
+**Linux has no network or filesystem confinement in v1.** There is no
+equivalent of Seatbelt that works unprivileged: Ubuntu 24.04 — what GitHub's
+`ubuntu-latest` runs — ships
+`kernel.apparmor_restrict_unprivileged_userns=1`, so `unshare --net` fails
+without root. Rather than ship something that looks like a sandbox and is not,
+the cell omits `network` and `filesystem` from its reported containment there,
+and the tests that depend on those guarantees **skip with a stated reason**
+instead of passing quietly.
+
+**Memory is enforced by the host, not by `setrlimit`.** macOS refuses
+`RLIMIT_AS` and `RLIMIT_DATA` outright — `setrlimit` returns an error rather
+than a smaller limit. Capping address space would therefore mean one mechanism
+and one reported outcome on Linux and different ones on macOS. One watchdog for
+everyone costs a poll interval of latency, and the cap can be overshot in that
+window; what it buys is a single behaviour to reason about.
+
+**`RLIMIT_NPROC` is per-user, so the cap is 1.** The account running sbx
+already has hundreds of processes, so any small cap means the cell cannot fork
+at all — which is exactly what a strategy sandbox wants. At a cap of one,
+`fork` fails on every machine rather than only on busy ones.
+
+`sandbox-exec` has carried a deprecation warning since 2017 and Apple has named
+no removal date and no replacement. That is a real dependency risk, recorded
+here rather than discovered later.
 
 ## Testing stance
 

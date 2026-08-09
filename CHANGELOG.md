@@ -4,6 +4,34 @@ Every milestone records what it built **and what it deliberately did not**.
 The second half is the interesting one: this project is defined as much by the
 fence around it as by the code inside it.
 
+## Milestone 3 — the execution cell
+
+**Built.** One subprocess per run in a private empty working directory, with
+the strategy copied in so it never learns its own path, running the *base*
+interpreter with `-S` so a strategy cannot import sbx even where there is no
+filesystem confinement. On macOS a generated Seatbelt profile denies the
+network, denies writes outside the workdir, and denies reads of everything the
+user owns — `$HOME`, `/etc`, `/private/var`, other temp directories, and above
+all `~/.sbx`, where the sealed datasets live. `RLIMIT_CPU`, `NOFILE`, `NPROC`
+and `FSIZE` are applied between fork and exec; a host watchdog enforces wall
+clock and resident memory and escalates to `killpg` + `SIGKILL`, which beats a
+strategy that swallows `SIGTERM`. Every report carries the tuple of mechanisms
+that were actually in force. All twelve hostile fixtures are contained.
+
+**Two deviations from the original design, on purpose.** `setrlimit` does not
+cap address space: macOS refuses `RLIMIT_AS` and `RLIMIT_DATA` outright, so
+memory is policed by the host watchdog on every platform rather than one way
+here and another way there. And Linux gets no network or filesystem
+confinement in v1 — there is no unprivileged equivalent of Seatbelt on the
+distributions that matter — so the cell reports `("rlimits", "watchdog")`
+there and the tests that need more skip with a stated reason.
+
+**Deliberately not built.** No container backend (that is the escalation
+milestone, behind this same interface). No seccomp, no `chroot`, no attempt at
+privilege separation — all need root. No in-process defences: no audit hooks,
+no stripped builtins, no import allow-list. They are escapable by construction
+and shipping them would suggest a boundary that is not there.
+
 ## Milestone 2 — sealed datasets and the ledger
 
 **Built.** Canonical encoding (`sbx.canonical`): sorted keys, no whitespace,
