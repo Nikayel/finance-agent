@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import journals
 
 from sbx import ledger, verify
+from sbx.errors import SbxError
 from sbx.exits import EXIT_OK
 
 # One that trades constantly, one that trades on a condition, one that never
@@ -89,6 +92,47 @@ def test_every_recorded_run_reproduces(sbx_cli, sbx_home: Path, tmp_path: Path) 
             f"{len(entry['fills'])} fills) did not reproduce: {checked.divergence}"
         )
         assert checked.same_environment
+
+
+def test_the_sweep_faces_the_runs_that_did_not_finish(
+    sbx_cli, sbx_home: Path, tmp_path: Path
+) -> None:
+    """A real ledger is not all clean runs, and the gate has to face that.
+
+    Two things must hold across a mixed ledger, and only the first is obvious.
+    A run that finished must reproduce. A run that did not must be *refused* —
+    it recorded no result, because where a host-stopped run got to is a
+    measurement of the machine, and verify saying DIVERGED there would be
+    blaming the strategy for the watchdog.
+    """
+    sealed = sbx_cli("seal", str(_journal(tmp_path)))
+    data = sealed.stdout.split()[1]
+
+    stopping = tmp_path / "stopping.py"
+    stopping.write_text(
+        "def strategy(market):\n"
+        "    for index, _tick in enumerate(market.ticks()):\n"
+        "        if index == 3:\n"
+        "            return\n"
+    )
+    raising = tmp_path / "raising.py"
+    raising.write_text(
+        "def strategy(market):\n"
+        "    for _tick in market.ticks():\n"
+        '        raise RuntimeError("boom")\n'
+    )
+    for strategy in (stopping, raising):
+        sbx_cli("run", str(strategy), "--data", data, "--seed", "3")
+
+    outcomes = {entry["outcome"] for entry in ledger.entries_of("run")}
+    assert outcomes == {"stopped_early", "failed"}
+
+    for entry in ledger.entries_of("run"):
+        if entry["result_hash"] is None:
+            with pytest.raises(SbxError, match="no result to reproduce"):
+                verify.verify(entry["run_id"])
+        else:
+            assert verify.verify(entry["run_id"]).verdict == "REPRODUCED"
 
 
 def test_the_sweep_is_not_vacuous(sbx_cli, sbx_home: Path, tmp_path: Path) -> None:
