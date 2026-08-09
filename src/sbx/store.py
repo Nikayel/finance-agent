@@ -131,6 +131,47 @@ def seal(journal_path: str | Path) -> tuple[SealedDataset, bool]:
     return load(digest), created
 
 
+def keep_code(strategy_path: str | Path) -> tuple[str, Path]:
+    """Copy a strategy into the store, content-addressed and read-only.
+
+    A run tuple names its code by hash. Without a kept copy that name resolves
+    to nothing the moment someone edits or deletes the file, and `sbx verify`
+    could only ever check runs whose source happened to survive.
+    """
+    source = Path(strategy_path)
+    if not source.is_file():
+        raise SbxError(f"no such strategy: {source}")
+
+    digest = canonical.hash_file(source)
+    directory = paths.code_dir()
+    target = directory / f"{digest}.py"
+    if target.exists():
+        return digest, target
+
+    directory.mkdir(parents=True, exist_ok=True)
+    handle, staged_name = tempfile.mkstemp(prefix=_STAGING_PREFIX, dir=directory)
+    os.close(handle)
+    staged = Path(staged_name)
+    try:
+        shutil.copyfile(source, staged)
+        os.chmod(staged, _READ_ONLY)
+        os.replace(staged, target)
+    finally:
+        staged.unlink(missing_ok=True)
+    return digest, target
+
+
+def code_path(sha256: str) -> Path:
+    """The kept copy of a strategy, by the hash a run recorded."""
+    _check_hash(sha256)
+    target = paths.code_dir() / f"{sha256}.py"
+    if not target.is_file():
+        raise SbxError(
+            f"the strategy for {sha256[:12]} is no longer in the store: {target}"
+        )
+    return target
+
+
 def load(sha256: str) -> SealedDataset:
     """Load a sealed dataset by its full digest."""
     _check_hash(sha256)

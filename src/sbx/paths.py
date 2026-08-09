@@ -15,6 +15,7 @@ from pathlib import Path
 
 HOME_DIRNAME = ".sbx"
 DATASETS_DIRNAME = "datasets"
+CODE_DIRNAME = "code"
 LEDGER_FILENAME = "ledger.jsonl"
 
 
@@ -26,6 +27,15 @@ def sbx_home() -> Path:
 def datasets_dir() -> Path:
     """The content-addressed store of sealed datasets."""
     return sbx_home() / DATASETS_DIRNAME
+
+
+def code_dir() -> Path:
+    """Kept copies of every strategy that has ever been run.
+
+    Without these, a run tuple is only re-executable while nobody edits the
+    file it names — and "months later" is the point.
+    """
+    return sbx_home() / CODE_DIRNAME
 
 
 def ledger_path() -> Path:
