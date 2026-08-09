@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+import harness
 import journals
 
 CONSOLE_SCRIPT = Path(sys.executable).parent / "sbx"
@@ -63,3 +64,12 @@ def sbx_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def journal(tmp_path: Path) -> Path:
     """A journal file in the upstream dialect, covering every record type."""
     return journals.write_journal(tmp_path / "events.jsonl")
+
+
+@pytest.fixture
+def sealed_data(sbx_cli, sbx_home: Path, tmp_path: Path) -> str:
+    """Seal the journal the determinism suites replay, and return its digest."""
+    source = journals.write_journal(tmp_path / "market.jsonl", harness.trades())
+    result = sbx_cli("seal", str(source))
+    assert result.returncode == 0, result.stderr
+    return harness.sha256_of(source)
