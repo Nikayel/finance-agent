@@ -41,3 +41,18 @@ jobs:
           python-version: "3.11"
       - name: Smoke
         run: scripts/smoke.sh
+
+  history:
+    name: every commit is as red or green as it claims
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the whole point is to replay the history
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: python -m pip install --editable ".[dev]"
+      - name: Replay
+        run: PYTHON="$(command -v python)" scripts/check-history.sh
