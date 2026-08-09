@@ -16,7 +16,6 @@ EXPECTED_VERBS = ("ls", "run", "seal", "verify")
 # Verbs whose implementation is still ahead of us. They must already parse
 # their real argument surface, then say plainly that they do nothing yet.
 PENDING_INVOCATIONS = {
-    "run": ("run", "strategy.py", "--data", "deadbeef", "--seed", "42"),
     "verify": ("verify", "run-0001"),
 }
 
