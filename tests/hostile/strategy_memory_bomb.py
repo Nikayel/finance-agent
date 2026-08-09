@@ -1,7 +1,12 @@
-"""strategy_memory_bomb -- address-space exhaustion fixture.
+"""strategy_memory_bomb -- memory exhaustion fixture.
 
 Attempts: Allocate roughly 10 GB and touch every page so the memory is actually committed, not lazily mapped.
-Cell must: Kill the process (or fail its allocation) once it exceeds RLIMIT_AS.
+Cell must: Kill the process once its resident size passes the run's memory limit.
+
+Not by RLIMIT_AS. macOS refuses to set that limit at all -- setrlimit returns
+an error rather than a smaller cap -- so memory is policed by the host, which
+polls resident size and kills. One mechanism on every platform beats two
+behaviours to explain, at the cost of a poll interval of overshoot.
 """
 import sys
 

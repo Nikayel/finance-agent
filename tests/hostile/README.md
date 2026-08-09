@@ -36,7 +36,7 @@ refused and exits `0`. So the tests assert:
 | --- | --- | --- |
 | `strategy_cpu_spin.py` | Tight, un-yielding CPU loop that never terminates | Killed via `RLIMIT_CPU` |
 | `strategy_sleep_forever.py` | Blocks ~forever using zero CPU (so `RLIMIT_CPU` can't fire) | Killed by the host wall-clock watchdog |
-| `strategy_memory_bomb.py` | Commits ~10 GB (touches every page) | Killed / `MemoryError` via `RLIMIT_AS`; `exit 97` if it allocates fine |
+| `strategy_memory_bomb.py` | Commits ~10 GB (touches every page) | Killed by the host's resident-size watchdog, not `RLIMIT_AS` — macOS refuses to set that limit; `exit 97` if it allocates fine |
 | `strategy_fork_bomb.py` | Unbounded `os.fork()` where every child forks again | Contained via `RLIMIT_NPROC` |
 | `strategy_socket_connect.py` | Outbound TCP to a public IP and localhost ports | No egress; `exit 97` if any connect succeeds |
 | `strategy_dns_lookup.py` | Name resolution via `socket.getaddrinfo` | No DNS; `exit 97` if any name resolves |
