@@ -257,21 +257,6 @@ def execute(
     # The identity of a result is the result, not the run. Timings and memory
     # differ between two runs of identical inputs, so they are recorded and
     # deliberately left out of the hash.
-    # `ticks` is in the hash, not just the record. A strategy that returns
-    # after 200 of 200,000 ticks — stopping on a peak — would otherwise be
-    # byte-indistinguishable from one that ran the whole journal.
-    result_hash = canonical.hash_object(
-        {
-            "code": code_hash,
-            "data": dataset.sha256,
-            "fills": fills,
-            "pnl": book.pnl,
-            "position": book.position,
-            "seed": seed,
-            "ticks": feeder.ticks_sent,
-        }
-    )
-
     if report.outcome != "completed":
         outcome = report.outcome
     elif feeder.failure is not None:
@@ -282,6 +267,34 @@ def execute(
         outcome = "stopped_early"
     else:
         outcome = "completed"
+
+    # A run the *host* stopped has no result to identify. Where it got to is a
+    # measurement of the machine — a slower box times out at a different tick —
+    # so hashing it would put ambient nondeterminism inside the one number that
+    # exists to be reproducible, and `verify` would report DIVERGED for a
+    # difference that says nothing about the code. The record still carries
+    # what happened up to the kill; what it does not carry is a result_hash,
+    # because there is no result.
+    #
+    # Where the strategy chose its own end, `ticks` *is* a function of the data
+    # and belongs in the hash: it is what stops a strategy that returns after
+    # 200 of 200,000 ticks, stopping on a peak, from being
+    # byte-indistinguishable from one that ran the journal out.
+    result_hash = (
+        canonical.hash_object(
+            {
+                "code": code_hash,
+                "data": dataset.sha256,
+                "fills": fills,
+                "pnl": book.pnl,
+                "position": book.position,
+                "seed": seed,
+                "ticks": feeder.ticks_sent,
+            }
+        )
+        if outcome in RAN_OUTCOMES
+        else None
+    )
 
     record = {
         "kind": "run",

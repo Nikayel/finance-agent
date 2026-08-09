@@ -83,6 +83,11 @@ def first_divergence(
 def verify(run_id: str, *, limits: Limits = Limits()) -> Verification:
     """Re-execute a recorded run and say what happened, precisely."""
     record = find_run(run_id)
+    if record.get("result_hash") is None:
+        raise SbxError(
+            f"{run_id} was stopped before it finished ({record.get('outcome')}), "
+            f"so it recorded no result to reproduce"
+        )
     recorded_hash = str(record["result_hash"])
     same_environment = record.get("env_fingerprint") == runner.env_fingerprint()
 

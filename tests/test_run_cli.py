@@ -201,7 +201,11 @@ def assert_contained_run_was_recorded() -> None:
     assert record["run_id"] == "run-0001"
     assert record["outcome"] != "completed"
     assert isinstance(record["containment"], list)
-    assert HEX64.match(record["result_hash"])
+    # And no result_hash. Where a run the host stopped got to is a measurement
+    # of the machine — a slower box times out at a different tick — so hashing
+    # it would put ambient nondeterminism inside the one number that exists to
+    # be reproducible. The run is evidence; it is not a result.
+    assert record["result_hash"] is None
 
 
 @pytest.fixture
