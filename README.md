@@ -159,46 +159,35 @@ survive being asked to do it again.
 
 ## The rest of it
 
-Sealing and tamper detection, verbatim from a terminal:
+Sealing and tamper detection. The journal builder is seeded, so these hashes
+are not decoration — run the three commands and you get the same ones:
 
 ```console
-$ sbx seal ~/finnce/phase1/data/events.jsonl
-sealed ae76ece753ef6a6238ea16d216155bbb827813e361ba0e7091e5b615dcd4be95
-  280 records, 39.7 KiB
-  /Users/you/.sbx/datasets/ae76ece753ef6a6238ea16d216155bbb827813e361ba0e7091e5b615dcd4be95
+$ python3 demo/make_journal.py /tmp/events.jsonl
+$ sbx seal /tmp/events.jsonl
+sealed 75de79d90d8d86dca21d7ca5e5ebeaa7160a17814f3b28ae82a64c4e6a923481
+  401 records, 75.8 KiB
+  /Users/you/.sbx/datasets/75de79d90d8d86dca21d7ca5e5ebeaa7160a17814f3b28ae82a64c4e6a923481
 
 $ sbx ls
 DATASETS
-  ae76ece753ef      280 records   39.7 KiB  ok
-
-RUNS
-  (none)
+  75de79d90d8d      401 records   75.8 KiB  ok
 
 $ # flip one byte in the middle of the sealed copy, same file length
 $ sbx ls
 DATASETS
-  ae76ece753ef      280 records   39.7 KiB  TAMPERED
+  75de79d90d8d      401 records   75.8 KiB  TAMPERED
 ```
-
-Running a strategy against a sealed dataset, through the time gate:
-
-```console
-$ sbx run examples/momentum.py --data 4c4d2fb2 --seed 42
-run-0001  completed
-  data 4c4d2fb2d818  code 5b628e8124f7  seed 42
-  19 fills, pnl 0.12825, position 0.019
-  result 14c4f65236ba5ef50b5a0c3a3f95185b25c174b9b2c6938bdd9b5dc820a3fd60
-```
-
-Run the same tuple again and `result` is the same 64 characters. That equality
-is the whole point, and milestone 6 turns it into `sbx verify`.
 
 `ls` re-hashes the stored bytes every time rather than trusting the manifest.
 A store that only reports what it was told is not a store you can audit.
 
 ## Status
 
-Built milestone by milestone, each one gated on a human review. See
+Built milestone by milestone. Each one has a review gate defined for it, and
+**none of those gates has been signed yet** — the code below is agent-written
+and agent-tested, and it is waiting on me. Saying otherwise would be the exact
+species of unearned claim this repository exists to argue against. See
 [`CHANGELOG.md`](CHANGELOG.md) for what each milestone delivered and what it
 deliberately did not.
 
