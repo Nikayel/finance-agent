@@ -97,6 +97,32 @@ full test suite:
 $ scripts/smoke.sh
 ```
 
+## What works today
+
+Sealing and tamper detection, verbatim from a terminal:
+
+```console
+$ sbx seal ~/finnce/phase1/data/events.jsonl
+sealed ae76ece753ef6a6238ea16d216155bbb827813e361ba0e7091e5b615dcd4be95
+  280 records, 39.7 KiB
+  /Users/you/.sbx/datasets/ae76ece753ef6a6238ea16d216155bbb827813e361ba0e7091e5b615dcd4be95
+
+$ sbx ls
+DATASETS
+  ae76ece753ef      280 records   39.7 KiB  ok
+
+RUNS
+  (none)
+
+$ # flip one byte in the middle of the sealed copy, same file length
+$ sbx ls
+DATASETS
+  ae76ece753ef      280 records   39.7 KiB  TAMPERED
+```
+
+`ls` re-hashes the stored bytes every time rather than trusting the manifest.
+A store that only reports what it was told is not a store you can audit.
+
 ## Status
 
 Built milestone by milestone, each one gated on a human review. See
@@ -106,8 +132,8 @@ deliberately did not.
 | # | Milestone | State |
 |---|---|---|
 | 1 | Package + CLI shell | ✅ done |
-| 2 | Sealed datasets + ledger store | 🚧 in progress |
-| 3 | Execution cell (isolation, rlimits, watchdog) | ⬜ |
+| 2 | Sealed datasets + ledger store | ✅ done |
+| 3 | Execution cell (isolation, rlimits, watchdog) | 🚧 in progress |
 | 4 | Time-gated protocol + `Market` client | ⬜ |
 | 5 | Adversarial suite — *human-written attacks* | ⬜ |
 | 6 | Determinism hunt + `sbx verify` | ⬜ |
