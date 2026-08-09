@@ -22,6 +22,21 @@ granularity. A demo that proves the wrong thing is worse than no demo.
 screenshots — the output in the README is pasted from a real run and is
 reproducible by anyone who runs the script.
 
+## Milestone 5 — the adversarial harness, and nothing else
+
+**Built.** `tests/adversarial/` with a README stating the rule and
+`tests/test_adversarial.py`, which discovers `strategy_*.py` files there, runs
+each through the real CLI, and prints how each one failed. The harness is
+honest about the directory being empty rather than reading as a suite somebody
+switched off.
+
+**Deliberately not built: the attacks.** They are written by hand, by the
+repo's owner, and never by an agent — not a whole attack, not an example, not a
+commented-out sketch. The gate was built by agents; if the attacks on it were
+authored by the same process, the milestone would be testing one imagination
+against itself and calling the agreement evidence. Whatever a builder failed to
+think of while building, it will fail to think of again while attacking.
+
 ## Milestone 6 — determinism and `sbx verify`
 
 **Built.** `sbx verify <run-id>` re-executes a recorded tuple and byte-diffs
