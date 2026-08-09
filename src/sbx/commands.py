@@ -79,10 +79,26 @@ def ls(args: argparse.Namespace) -> int:
     del args
 
     print("DATASETS")
-    datasets = store.all_datasets()
-    if not datasets:
+    # Both sides, because either alone can lie by omission. The disk is the
+    # authority on contents — that is what re-hashing checks. The ledger is the
+    # authority on what was ever sealed, and without it a dataset someone
+    # deleted just quietly stops being listed, which is the one thing a
+    # tamper-evident store may not do.
+    on_disk = {dataset.sha256: dataset for dataset in store.all_datasets()}
+    registered = {
+        str(entry["sha256"]): entry for entry in ledger.entries_of("dataset")
+    }
+    if not on_disk and not registered:
         print("  (none)")
-    for dataset in datasets:
+    for digest in sorted(set(on_disk) | set(registered)):
+        dataset = on_disk.get(digest)
+        if dataset is None:
+            entry = registered[digest]
+            print(
+                f"  {digest[:12]}  {entry['records']:>7} records  "
+                f"{_human_bytes(int(entry['bytes'])):>9}  MISSING"
+            )
+            continue
         status = "ok" if dataset.verify() else "TAMPERED"
         print(
             f"  {dataset.short}  {dataset.records:>7} records  "

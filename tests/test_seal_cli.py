@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 from pathlib import Path
 
 import journals
@@ -121,6 +122,26 @@ def test_ls_reports_a_tampered_dataset(sbx_cli, sbx_home: Path, journal: Path) -
     result = sbx_cli("ls")
     assert result.returncode == EXIT_OK
     assert "TAMPERED" in result.stdout
+
+
+def test_ls_reports_a_dataset_that_has_been_deleted(
+    sbx_cli, sbx_home: Path, journal: Path
+) -> None:
+    """Deleting a sealed dataset must be as visible as editing one.
+
+    A store that lists only what is on disk cannot tell you that something is
+    gone — the row simply stops appearing, and absence reads as never having
+    existed. The ledger is what makes the deletion say something.
+    """
+    sbx_cli("seal", str(journal))
+    digest = hashlib.sha256(journal.read_bytes()).hexdigest()
+    shutil.rmtree(paths.datasets_dir() / digest)
+
+    result = sbx_cli("ls")
+
+    assert result.returncode == EXIT_OK
+    assert digest[:12] in result.stdout
+    assert "MISSING" in result.stdout
 
 
 def test_ls_lists_every_dataset(sbx_cli, sbx_home: Path, tmp_path: Path) -> None:
