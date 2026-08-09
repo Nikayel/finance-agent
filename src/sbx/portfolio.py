@@ -57,6 +57,28 @@ class Fill:
         }
 
 
+def plausible_decimal(value: Any, what: str) -> Decimal:
+    """Parse an untrusted decimal, or say precisely why it is not one.
+
+    Used for order sizes *and* for prices read out of a sealed journal. Both
+    are untrusted: a journal is content-addressed, which proves nobody changed
+    it, not that it was sensible to begin with. A price of `"NaN"` used to
+    parse cleanly here and only surface much later as an encoding failure at
+    hash time, blaming the wrong thing entirely.
+    """
+    try:
+        quantity = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        raise SbxError(f"{what} {value!r} is not a decimal quantity") from None
+    if not quantity.is_finite() or quantity <= 0:
+        raise SbxError(f"{what} must be positive and finite, not {value!r}")
+    if quantity.as_tuple().exponent < -MAX_DECIMAL_PLACES:
+        raise SbxError(f"{what} has more than {MAX_DECIMAL_PLACES} decimal places")
+    if quantity.adjusted() > MAX_MAGNITUDE_DIGITS:
+        raise SbxError(f"{what} is larger than {MAX_MAGNITUDE_DIGITS} digits")
+    return quantity
+
+
 def parse_order(raw: Any, index: int) -> Order:
     """Turn one wire order into an Order, or say precisely why it is not one."""
     where = f"order {index}"
@@ -67,23 +89,7 @@ def parse_order(raw: Any, index: int) -> Order:
     if side not in SIDES:
         raise SbxError(f"{where}: side must be BUY or SELL, not {side!r}")
 
-    size = raw.get("size")
-    try:
-        quantity = Decimal(str(size))
-    except (InvalidOperation, ValueError):
-        raise SbxError(f"{where}: size {size!r} is not a decimal quantity") from None
-    if not quantity.is_finite() or quantity <= 0:
-        raise SbxError(f"{where}: size must be positive and finite, not {size!r}")
-    if quantity.as_tuple().exponent < -MAX_DECIMAL_PLACES:
-        raise SbxError(
-            f"{where}: size has more than {MAX_DECIMAL_PLACES} decimal places"
-        )
-    if quantity.adjusted() > MAX_MAGNITUDE_DIGITS:
-        raise SbxError(
-            f"{where}: size is larger than {MAX_MAGNITUDE_DIGITS} digits"
-        )
-
-    return Order(side=side, size=quantity)
+    return Order(side=side, size=plausible_decimal(raw.get("size"), f"{where}: size"))
 
 
 @dataclass
@@ -112,10 +118,7 @@ class Portfolio:
         """
         if event.get("type") != "trade":
             return
-        try:
-            price = Decimal(str(event["price"]))
-        except (InvalidOperation, KeyError, ValueError) as error:
-            raise SbxError(f"trade has no usable price: {error}") from error
+        price = plausible_decimal(event.get("price"), "trade price")
         at = now
 
         self.last_price = price
