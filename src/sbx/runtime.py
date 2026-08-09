@@ -24,6 +24,7 @@ history keeps its own, in its own memory, which the host never has to trust.
 from __future__ import annotations
 
 import os
+import random
 import sys
 from collections.abc import Iterator
 from decimal import Decimal, InvalidOperation
@@ -44,12 +45,17 @@ class StrategyError(Exception):
 class Market:
     """A strategy's whole view of the world."""
 
-    def __init__(self, to_host: BinaryIO, from_host: BinaryIO) -> None:
+    def __init__(
+        self, to_host: BinaryIO, from_host: BinaryIO, randomness: random.Random
+    ) -> None:
         self._to_host = to_host
         self._from_host = from_host
         self._orders: list[dict[str, Any]] = []
         self.now: str = ""
         self.events: tuple[dict[str, Any], ...] = ()
+        #: Seeded from the run's seed. The only randomness a strategy should
+        #: use, and the only one whose numbers come back the same next year.
+        self.random = randomness
 
     def order(self, side: str, size: Decimal) -> None:
         """Queue a market order against the current tick."""
@@ -113,6 +119,21 @@ def main() -> None:
 
     protocol.write_frame(to_host, {"m": "ready"})
 
+    opening = protocol.read_frame(from_host)
+    if opening is None or opening.get("m") != "start":
+        _tell_host(to_host, f"host opened with {opening!r} where a start was due")
+        raise SystemExit(1)
+    seed = opening.get("seed")
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        _tell_host(to_host, f"start carried {seed!r}, which is not a seed")
+        raise SystemExit(1)
+
+    # Seed the module-level generator too, not just the one handed to the
+    # strategy: a careless `import random` in someone's code should still
+    # produce the same numbers next year, rather than quietly ruining a run's
+    # reproducibility in a way only `sbx verify` would ever notice.
+    random.seed(seed)
+
     try:
         module = __import__(STRATEGY_MODULE)
     except BaseException as error:
@@ -127,7 +148,7 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    market = Market(to_host, from_host)
+    market = Market(to_host, from_host, random.Random(seed))
     try:
         entry(market)
     except BaseException as error:

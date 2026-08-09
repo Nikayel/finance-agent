@@ -24,7 +24,17 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from . import __version__, canonical, cell, gate, ledger, portfolio, protocol, sandbox
+from . import (
+    __version__,
+    canonical,
+    cell,
+    gate,
+    ledger,
+    portfolio,
+    protocol,
+    sandbox,
+    store,
+)
 from .cell import CellReport
 from .errors import ProtocolError, SbxError
 from .limits import Limits
@@ -118,8 +128,9 @@ def journal_records(path: Path) -> Iterator[dict[str, Any]]:
 class Feeder:
     """The host half of the conversation: one tick out, one answer back."""
 
-    def __init__(self, records: Iterator[dict[str, Any]]) -> None:
+    def __init__(self, records: Iterator[dict[str, Any]], seed: int) -> None:
         self._records = records
+        self._seed = seed
         self.portfolio = portfolio.Portfolio()
         self.ticks_sent = 0
         self.failure: str | None = None
@@ -145,6 +156,10 @@ class Feeder:
             return
         if opening["m"] != "ready":
             raise ProtocolError(f"cell opened with {opening['m']!r}, expected 'ready'")
+
+        # Randomness is injected, never ambient: the cell seeds both its own
+        # generator and the module-level one from this number.
+        protocol.write_frame(to_cell, {"m": "start", "seed": self._seed})
 
         for tick in gate.replay(self._records):
             # Fill first: an order placed at an earlier tick fills at *this*
@@ -193,10 +208,12 @@ def execute(
     if not strategy.is_file():
         raise SbxError(f"no such strategy: {strategy}")
 
-    code_hash = canonical.hash_file(strategy)
-    feeder = Feeder(journal_records(dataset.data_path))
+    # Keep the source before running it: a tuple that names its code by hash
+    # is only re-executable if that hash still resolves to something.
+    code_hash, kept = store.keep_code(strategy)
+    feeder = Feeder(journal_records(dataset.data_path), seed)
     report = cell.run(
-        strategy,
+        kept,
         limits=limits,
         attachments=cell_attachments(),
         entry=CELL_ENTRY,
