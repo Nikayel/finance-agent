@@ -33,12 +33,16 @@ integration, live trading, web anything.
 
 ## Relationship to `finnce`
 
-This repo consumes the journals `finnce` Phase 1 produces and depends on
-the determinism discipline Phase 2 teaches. **Hard gate: no
-implementation code lands here until finnce Phase 2 is complete.**
+This repo consumes the journals `finnce` Phase 1 produces. Division of
+labor: **finnce is hand-built by Nikayel** (the learning repo, no AI
+implementation); **this repo is implemented by AI agents** following
+`docs/AGENT-PLAN.md`, with human review gates after every milestone and
+a human-authored adversarial suite (M5). The product's thesis — verify
+AI-written code adversarially — is also its build process.
 
 ## Documents
 
 - `docs/PRD.md` — what, for whom, and what "done" means
 - `docs/DESIGN.md` — system design: the three components and their seams
 - `docs/ROADMAP.md` — milestones, hour estimates, kill criteria
+- `docs/AGENT-PLAN.md` — loop-executable build plan for the AI agents
