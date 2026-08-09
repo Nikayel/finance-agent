@@ -120,6 +120,19 @@ DATASETS
   ae76ece753ef      280 records   39.7 KiB  TAMPERED
 ```
 
+Running a strategy against a sealed dataset, through the time gate:
+
+```console
+$ sbx run examples/momentum.py --data 4c4d2fb2 --seed 42
+run-0001  completed
+  data 4c4d2fb2d818  code 5b628e8124f7  seed 42
+  19 fills, pnl 0.12825, position 0.019
+  result 14c4f65236ba5ef50b5a0c3a3f95185b25c174b9b2c6938bdd9b5dc820a3fd60
+```
+
+Run the same tuple again and `result` is the same 64 characters. That equality
+is the whole point, and milestone 6 turns it into `sbx verify`.
+
 `ls` re-hashes the stored bytes every time rather than trusting the manifest.
 A store that only reports what it was told is not a store you can audit.
 
@@ -134,9 +147,9 @@ deliberately did not.
 | 1 | Package + CLI shell | ✅ done |
 | 2 | Sealed datasets + ledger store | ✅ done |
 | 3 | Execution cell (isolation, rlimits, watchdog) | ✅ done |
-| 4 | Time-gated protocol + `Market` client | 🚧 in progress |
+| 4 | Time-gated protocol + `Market` client | ✅ done |
 | 5 | Adversarial suite — *human-written attacks* | ⬜ |
-| 6 | Determinism hunt + `sbx verify` | ⬜ |
+| 6 | Determinism hunt + `sbx verify` | 🚧 in progress |
 | 7 | The one-command demo | ⬜ |
 
 ## How this repo is built, and why that is the point

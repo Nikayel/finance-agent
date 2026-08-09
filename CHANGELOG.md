@@ -4,6 +4,33 @@ Every milestone records what it built **and what it deliberately did not**.
 The second half is the interesting one: this project is defined as much by the
 fence around it as by the code inside it.
 
+## Milestone 4 — the time gate
+
+**Built.** A framed wire between host and cell — 4-byte big-endian length,
+then that many bytes of canonical JSON — where an oversized declared length is
+refused *before* the body is read, and a truncated frame is an error while a
+clean boundary is not. A feeder that turns a sealed journal into ticks on a
+clock that only moves forward, carrying the journal's own timestamp text
+rather than re-rendering it. A strategy-side `Market` whose only method that
+returns anything is an iterator, and whose advance is what commits the current
+tick's orders. `sbx run` end to end: seal, execute, record, and the run shows
+up in `sbx ls`.
+
+The gate is that the host sends one tick and then blocks. The next record is
+never written to the pipe, so it is not in the cell's process memory, so a
+strategy walking `dir()`, `gc.get_objects()` or `__subclasses__()` finds
+nothing — there is nothing to find. Look-ahead is not detected here; it is
+unrepresentable.
+
+**Deliberately not built.** No order types beyond a market order, no partial
+fills, no fees, no slippage model, no book reconstruction, no limit orders and
+no cancels. An order fills at the price of the next trade after the tick it
+was placed in, or it never fills at all — which is the honest answer for a
+decision made at the end of the data, and one of the places a backtest usually
+lies. No multi-record ticks, no history window in `Market`: a strategy that
+wants history keeps its own, because state the host does not hold is state the
+host does not have to be trusted about.
+
 ## Milestone 3 — the execution cell
 
 **Built.** One subprocess per run in a private empty working directory, with
