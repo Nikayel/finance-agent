@@ -38,7 +38,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from . import sandbox
 from .errors import SbxError
@@ -59,7 +59,15 @@ _POLL_SECONDS = 0.02
 _RSS_POLL_SECONDS = 0.05
 _DRAIN_GRACE_SECONDS = 2.0
 _DIALOGUE_JOIN_SECONDS = 5.0
+_KILL_GRACE_SECONDS = 5.0
 _READ_BYTES = 65536
+
+# The cell is capped; the host is not. A strategy writing to stderr in a loop
+# costs itself nothing that `setrlimit` measures — RLIMIT_FSIZE does not apply
+# to pipes — and the host's capture list has no natural bound. Measured: the
+# uncapped drain loop buffered 11.8 GiB in three seconds, which kills the
+# machine long before the watchdog's verdict is ever returned.
+_MAX_CAPTURE_BYTES = 1 << 20
 
 # The host side of a conversation with the cell: given the cell's stdin and
 # stdout, talk to it until it stops. Run on its own thread — see _talk.
@@ -148,6 +156,20 @@ def _resident_bytes(pid: int) -> int | None:
         return None
 
 
+def _reap_briefly(pid: int, usage: Any) -> tuple[int | None, Any]:
+    """Collect a child, giving up rather than blocking on one we cannot kill."""
+    deadline = time.monotonic() + _KILL_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            reaped, status, collected = os.wait4(pid, os.WNOHANG)
+        except ChildProcessError:  # pragma: no cover - already collected
+            return None, usage
+        if reaped == pid:
+            return status, collected
+        time.sleep(_POLL_SECONDS)
+    return None, usage
+
+
 def _kill_group(pid: int) -> None:
     try:
         os.killpg(os.getpgid(pid), signal.SIGKILL)
@@ -155,9 +177,39 @@ def _kill_group(pid: int) -> None:
         pass
 
 
+class _Capture:
+    """Bounded capture of one of the cell's output streams.
+
+    Past the cap the bytes are still *read* — draining has to continue or the
+    cell blocks on a full pipe and never reaches its own deadline — but they
+    are dropped rather than kept.
+    """
+
+    def __init__(self) -> None:
+        self._chunks: list[bytes] = []
+        self._kept = 0
+        self.truncated = False
+
+    def add(self, data: bytes) -> None:
+        room = _MAX_CAPTURE_BYTES - self._kept
+        if room <= 0:
+            self.truncated = True
+            return
+        self._chunks.append(data[:room])
+        self._kept += min(room, len(data))
+        if len(data) > room:
+            self.truncated = True
+
+    def text(self) -> str:
+        captured = b"".join(self._chunks).decode("utf-8", "replace")
+        if self.truncated:
+            captured += f"\n[sbx: truncated at {_MAX_CAPTURE_BYTES} bytes]\n"
+        return captured
+
+
 def _read_ready(
     selector: selectors.BaseSelector,
-    chunks: dict[str, list[bytes]],
+    chunks: dict[str, _Capture],
     timeout: float,
 ) -> bool:
     """Move whatever is readable into `chunks`; say whether anything was."""
@@ -165,13 +217,13 @@ def _read_ready(
     for key, _ in events:
         data = key.fileobj.read1(_READ_BYTES)  # type: ignore[union-attr]
         if data:
-            chunks[key.data].append(data)
+            chunks[key.data].add(data)
         else:
             selector.unregister(key.fileobj)
     return bool(events)
 
 
-def _drain(selector: selectors.BaseSelector, chunks: dict[str, list[bytes]]) -> None:
+def _drain(selector: selectors.BaseSelector, chunks: dict[str, _Capture]) -> None:
     """Collect what the child wrote before it died.
 
     Bounded, because a surviving grandchild can hold the write end of the pipe
@@ -189,6 +241,7 @@ def _classify(
     exit_code: int | None,
     term_signal: int | None,
     limits: Limits,
+    dialogue_failure: str | None,
 ) -> tuple[str, str]:
     if killed is not None:
         return killed
@@ -200,12 +253,19 @@ def _classify(
     if term_signal is not None:
         name = signal.Signals(term_signal).name
         return "killed", f"killed by signal {term_signal} ({name})"
+    if dialogue_failure is not None:
+        # Ordered before the exit-status check on purpose. A cell that writes
+        # half a frame and exits 0 would otherwise be reported as having "run
+        # to completion" — byte-identical in the ledger to a strategy that
+        # genuinely ran and did nothing. Completion has to be something the
+        # cell asserts on the wire, never something inferred from exit status.
+        return "failed", f"the conversation failed: {dialogue_failure}"
     if exit_code == 0:
         return "completed", "ran to completion"
     return "failed", f"exited with status {exit_code}"
 
 
-def _talk(dialogue: Dialogue, child: subprocess.Popen) -> None:
+def _talk(dialogue: Dialogue, child: subprocess.Popen, failures: list[str]) -> None:
     """Run the host side of the conversation on its own thread.
 
     Blocking reads and writes are far easier to get right than a protocol state
@@ -213,14 +273,14 @@ def _talk(dialogue: Dialogue, child: subprocess.Popen) -> None:
     only thing that owns a deadline: when it kills the cell, these pipes break
     and this thread falls out of its loop on its own.
 
-    A dialogue is expected to record its own failures — by the time an
-    exception escapes to here there is no one left to tell, and a thread that
-    dies noisily would take nothing useful with it.
+    Anything that escapes the dialogue is recorded in `failures` rather than
+    swallowed. Losing it would let a cell that never held a conversation be
+    reported as having completed one.
     """
     try:
         dialogue(child.stdin, child.stdout)
-    except BaseException:  # noqa: BLE001 - see docstring
-        pass
+    except BaseException as error:  # noqa: BLE001 - recorded, not swallowed
+        failures.append(f"{type(error).__name__}: {error}")
     finally:
         try:
             if child.stdin is not None:
@@ -293,7 +353,7 @@ def _execute(
         preexec_fn=_preexec(limits),
     )
 
-    chunks: dict[str, list[bytes]] = {"stdout": [], "stderr": []}
+    chunks: dict[str, _Capture] = {"stdout": _Capture(), "stderr": _Capture()}
     selector = selectors.DefaultSelector()
     if dialogue is None:
         selector.register(child.stdout, selectors.EVENT_READ, "stdout")
@@ -302,18 +362,23 @@ def _execute(
     # diagnostics still arrive here and a stray print cannot desynchronise it.
     selector.register(child.stderr, selectors.EVENT_READ, "stderr")
 
+    failures: list[str] = []
     talker: threading.Thread | None = None
     if dialogue is not None:
         talker = threading.Thread(
-            target=_talk, args=(dialogue, child), name="sbx-dialogue", daemon=True
+            target=_talk,
+            args=(dialogue, child, failures),
+            name="sbx-dialogue",
+            daemon=True,
         )
         talker.start()
 
     deadline = time.monotonic() + limits.wall_seconds
     next_rss_poll = time.monotonic()
+    kill_deadline = 0.0
     killed: tuple[str, str] | None = None
     status: int | None = None
-    usage = None
+    usage: Any = None
 
     try:
         while True:
@@ -321,13 +386,28 @@ def _execute(
             # reach the exit the watchdog is waiting for.
             _read_ready(selector, chunks, _POLL_SECONDS)
 
-            reaped, status, usage = os.wait4(child.pid, os.WNOHANG)
+            reaped, reaped_status, reaped_usage = os.wait4(child.pid, os.WNOHANG)
             if reaped == child.pid:
+                status, usage = reaped_status, reaped_usage
                 break
 
             now = time.monotonic()
+
             if killed is not None:
+                if now >= kill_deadline:
+                    # The kill did not land — an uninterruptible sleep, a pgid
+                    # we may not signal. Stop waiting rather than block the
+                    # host forever: a deadline that disarms itself the moment
+                    # it fires is not a deadline.
+                    killed = (
+                        "killed",
+                        f"pid {child.pid} outlived SIGKILL by "
+                        f"{_KILL_GRACE_SECONDS:g}s and was abandoned",
+                    )
+                    break
+                _kill_group(child.pid)  # re-issue; one signal may not be enough
                 continue
+
             if now >= deadline:
                 killed = (
                     "timed_out",
@@ -342,15 +422,15 @@ def _execute(
                         f"killed after resident memory passed "
                         f"{limits.memory_bytes} bytes",
                     )
+
             if killed is not None:
+                kill_deadline = now + _KILL_GRACE_SECONDS
                 _kill_group(child.pid)
 
         _drain(selector, chunks)
     finally:
         selector.close()
         if talker is not None:
-            # The cell is gone, so its end of the pipes is closed and the
-            # conversation cannot still be blocked on one.
             talker.join(timeout=_DIALOGUE_JOIN_SECONDS)
         for stream in (child.stdin, child.stdout, child.stderr):
             if stream is not None:
@@ -359,25 +439,35 @@ def _execute(
                 except OSError:  # pragma: no cover - already broken
                     pass
         if status is None:
-            # Leaving through an exception. Do not leave a live cell behind.
+            # An exception is unwinding, or the child escaped its kill. Either
+            # way: do not leave a live cell behind, and do not block on one we
+            # may not be able to signal.
             _kill_group(child.pid)
-            _, status, usage = os.wait4(child.pid, 0)
+            status, usage = _reap_briefly(child.pid, usage)
         # Popen must not try to reap a child os.wait4 already collected.
-        child.returncode = os.waitstatus_to_exitcode(status)
+        child.returncode = (
+            os.waitstatus_to_exitcode(status) if status is not None else -signal.SIGKILL
+        )
 
-    exit_code = None if os.WIFSIGNALED(status) else os.WEXITSTATUS(status)
-    term_signal = os.WTERMSIG(status) if os.WIFSIGNALED(status) else None
-    outcome, detail = _classify(killed, exit_code, term_signal, limits)
+    failure = failures[0] if failures else None
+    if status is None:
+        exit_code: int | None = None
+        term_signal: int | None = None
+        outcome, detail = killed or ("killed", "the cell could not be collected")
+    else:
+        exit_code = None if os.WIFSIGNALED(status) else os.WEXITSTATUS(status)
+        term_signal = os.WTERMSIG(status) if os.WIFSIGNALED(status) else None
+        outcome, detail = _classify(killed, exit_code, term_signal, limits, failure)
 
     return CellReport(
         outcome=outcome,
         exit_code=exit_code,
         signal=term_signal,
         detail=detail,
-        stdout=b"".join(chunks["stdout"]).decode("utf-8", "replace"),
-        stderr=b"".join(chunks["stderr"]).decode("utf-8", "replace"),
-        utime_us=int(round(usage.ru_utime * 1_000_000)),
-        stime_us=int(round(usage.ru_stime * 1_000_000)),
-        max_rss_bytes=usage.ru_maxrss * _MAXRSS_SCALE,
+        stdout=chunks["stdout"].text(),
+        stderr=chunks["stderr"].text(),
+        utime_us=int(round(usage.ru_utime * 1_000_000)) if usage else 0,
+        stime_us=int(round(usage.ru_stime * 1_000_000)) if usage else 0,
+        max_rss_bytes=usage.ru_maxrss * _MAXRSS_SCALE if usage else 0,
         containment=sandbox.mechanisms(),
     )
