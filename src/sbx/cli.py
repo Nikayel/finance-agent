@@ -69,7 +69,7 @@ _COMMANDS: dict[str, Command] = {
     "verify": Command(
         help="re-execute a recorded run and diff it byte-for-byte",
         add_arguments=_verify_arguments,
-        handler=commands.pending(6),
+        handler=commands.verify,
     ),
     "ls": Command(
         help="list sealed datasets and recorded runs",
