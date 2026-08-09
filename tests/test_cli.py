@@ -13,11 +13,9 @@ from sbx.cli import EXIT_ERROR, EXIT_USAGE, VERBS
 
 EXPECTED_VERBS = ("ls", "run", "seal", "verify")
 
-# Verbs whose implementation is still ahead of us. They must already parse
-# their real argument surface, then say plainly that they do nothing yet.
-PENDING_INVOCATIONS = {
-    "verify": ("verify", "run-0001"),
-}
+# Every verb now does something, so a verb's own suite owns its behaviour.
+# What stays here is the fence: which verbs exist, and how the entry point
+# behaves when it is handed nonsense.
 
 
 def test_verb_set_is_exactly_four() -> None:
@@ -44,17 +42,15 @@ def test_each_verb_has_its_own_help(sbx_cli, verb: str) -> None:
     assert verb in result.stdout
 
 
-@pytest.mark.parametrize("verb", sorted(PENDING_INVOCATIONS))
-def test_each_pending_verb_parses_then_reports_not_implemented(
-    sbx_cli, verb: str
-) -> None:
-    result = sbx_cli(*PENDING_INVOCATIONS[verb])
+def test_a_failing_verb_reports_one_clean_line(sbx_cli, sbx_home) -> None:
+    """Expected failures are a sentence on stderr, never a traceback."""
+    result = sbx_cli("verify", "run-9999")
+
     assert result.returncode == EXIT_ERROR
-    assert "not implemented" in result.stderr.lower()
     # Failures never contaminate stdout, so callers can pipe it safely.
     assert result.stdout == ""
-    # And they never leak a traceback at the user.
     assert "Traceback" not in result.stderr
+    assert result.stderr.strip().count("\n") == 0
 
 
 def test_no_verb_is_a_usage_error(sbx_cli) -> None:
