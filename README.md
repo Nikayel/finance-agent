@@ -97,7 +97,67 @@ full test suite:
 $ scripts/smoke.sh
 ```
 
-## What works today
+## The demo
+
+One command on a fresh clone. It installs into a throwaway venv and points
+`HOME` at a throwaway directory, so it needs nothing of yours and touches
+nothing of yours.
+
+```console
+$ demo/demo.sh
+```
+
+It seals a journal, then runs three strategies against it. First, one that goes
+looking for the data it has not been shown:
+
+```console
+run-0001  completed
+  the strategy said:
+    looking for data I have not been shown:
+      refused  the sealed dataset store: FileNotFoundError
+      refused  my home directory: PermissionError
+      refused  the parent of my working directory: PermissionError
+      refused  /etc/passwd: PermissionError
+      refused  the network: PermissionError
+      -- every route refused
+```
+
+Then one with a great-looking number. Nothing malicious — it sizes its orders
+from the wall clock, which is the ordinary way an agent-written backtest turns
+an accident into a claim. Note that it beats the honest strategy:
+
+```console
+run-0002  completed
+  62 fills, pnl 2.93309025, position 0.097533
+  result 85f8ad967776d8ae055ad3fa4529bd28fdd7ed77e89091b34dbbbf57a95bb36f
+```
+
+Then the one command this whole project exists for:
+
+```console
+$ sbx verify run-0002
+DIVERGED  run-0002
+  recorded 85f8ad967776d8ae055ad3fa4529bd28fdd7ed77e89091b34dbbbf57a95bb36f
+  replayed 3b16b5f8826bb1951c23ac945532c5ec2ec038e691e2d9f216616d38bbf906ab
+  first divergence: position: recorded 0.097533, replayed 0.091262
+```
+
+Caught. The number was never a measurement. And the honest version of the same
+idea, run and verified:
+
+```console
+run-0003  completed
+  62 fills, pnl 1.83400, position 0.062
+  result d7e48af4b2e759fbefa3e166612a826ba7018f23822d3dbcc71b26383169581e
+
+$ sbx verify run-0003
+REPRODUCED  run-0003
+```
+
+That is the pitch: the strategy with the better backtest is the one that cannot
+survive being asked to do it again.
+
+## The rest of it
 
 Sealing and tamper detection, verbatim from a terminal:
 
@@ -148,9 +208,14 @@ deliberately did not.
 | 2 | Sealed datasets + ledger store | ✅ done |
 | 3 | Execution cell (isolation, rlimits, watchdog) | ✅ done |
 | 4 | Time-gated protocol + `Market` client | ✅ done |
-| 5 | Adversarial suite — *human-written attacks* | ⬜ |
-| 6 | Determinism hunt + `sbx verify` | 🚧 in progress |
-| 7 | The one-command demo | ⬜ |
+| 5 | Adversarial suite — *human-written attacks* | ⬜ **mine to write** |
+| 6 | Determinism hunt + `sbx verify` | ✅ done |
+| 7 | The one-command demo | ✅ done |
+
+Milestone 5 is the one an agent may not do. The harness that discovers and
+runs the attacks is built and `tests/adversarial/` is deliberately empty: the
+cheating strategies go in by hand, mine, because a gate whose attacks were
+written by the same process that built the gate proves nothing.
 
 ## How this repo is built, and why that is the point
 

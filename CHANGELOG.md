@@ -4,6 +4,62 @@ Every milestone records what it built **and what it deliberately did not**.
 The second half is the interesting one: this project is defined as much by the
 fence around it as by the code inside it.
 
+## Milestone 7 — the demo
+
+**Built.** `demo/demo.sh`: one command on a fresh clone that installs into a
+throwaway venv, points `HOME` at a throwaway directory, builds a deterministic
+journal, seals it, and runs three strategies against it — one that hunts for
+data it has not been shown and reports every route being refused, one whose
+better-looking P&L came from the wall clock, and the honest version of the same
+idea. Then `sbx verify` on both: the first diverges with the divergent field
+named, the second reproduces exactly.
+
+**Found while writing it.** The first cheater was accidentally reproducible:
+`time_ns() % 1000` is always zero on macOS, whose clock has microsecond
+granularity. A demo that proves the wrong thing is worse than no demo.
+
+**Deliberately not built.** No recorded terminal session, no asciinema, no
+screenshots — the output in the README is pasted from a real run and is
+reproducible by anyone who runs the script.
+
+## Milestone 6 — determinism and `sbx verify`
+
+**Built.** `sbx verify <run-id>` re-executes a recorded tuple and byte-diffs
+the canonical result. Three verdicts, each a different claim: REPRODUCED;
+DIVERGED with the first differing field named, searched in a fixed order so the
+answer is the most summary one; and TAMPERED when the sealed dataset no longer
+hashes to what the run recorded — in which case nothing was re-executed, so
+nothing may be said about the code. Verify always reports whether the
+environment matched, because claiming a clean reproduction while omitting that
+it happened on another machine is exactly the small lie this project exists to
+make impossible. Strategy sources are now kept content-addressed and read-only,
+so a tuple stays re-executable after the original file is edited or deleted.
+The seed is injected into the cell, which seeds both the generator handed to
+the strategy and the module-level one, so a careless `import random` is pinned
+too.
+
+**Hardened, from an adversarial review of milestones 3 and 4.** The host's
+output capture had no bound — a strategy writing to stderr in a loop buffered a
+measured 11.8 GiB in three seconds, killing the machine before the watchdog's
+verdict was returned. A kill that failed to land permanently disarmed the
+deadline that issued it. An exception escaping the host-cell conversation was
+swallowed, so a cell that wrote half a frame and exited zero was recorded as
+having run to completion. Fills were stamped with the exchange's clock rather
+than the simulated one, producing fills dated before the decisions that caused
+them — the audit trail manufacturing the artefact it exists to disprove. An
+order size of `Decimal("1E-20000000")` arrived in 22 bytes and rendered to a
+gigabyte of text inside the host, which has no resource limits. A decision now
+names the tick it answers, and the number of ticks a run answered is hashed, so
+a strategy that stops on a peak is not indistinguishable from one that ran the
+data out.
+
+**Deliberately not built.** No `--force`, no re-recording, no way to overwrite
+a run: a ledger you can edit is not a ledger. No statistical "close enough"
+comparison — byte-identical or it diverged. No attempt to *prevent* a strategy
+reading the clock: nothing running real code can, and the guarantee sbx offers
+there is detection, which is why the determinism suite's mutation test asserts
+that such a strategy's hashes differ.
+
 ## Milestone 4 — the time gate
 
 **Built.** A framed wire between host and cell — 4-byte big-endian length,
