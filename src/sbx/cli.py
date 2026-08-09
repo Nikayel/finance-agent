@@ -1,7 +1,7 @@
 """Four verbs, no more: seal, run, verify, ls.
 
-This module owns argument parsing, dispatch and exit codes — nothing else.
-Each verb's actual work lives in its own module and is reached through the
+This module owns argument parsing and dispatch — nothing else. Each verb's
+actual work lives in :mod:`sbx.commands` and is reached through the
 ``_COMMANDS`` registry, which is also the single source of truth for what
 verbs exist. Keeping the handlers out of here is what stops the CLI slowly
 becoming the program.
@@ -14,12 +14,11 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from . import __version__
+from . import __version__, commands
 from .errors import SbxError
+from .exits import EXIT_ERROR, EXIT_OK, EXIT_USAGE
 
-EXIT_OK = 0
-EXIT_ERROR = 1
-EXIT_USAGE = 2  # argparse's own convention, named here so tests can assert it.
+__all__ = ["EXIT_ERROR", "EXIT_OK", "EXIT_USAGE", "VERBS", "build_parser", "main"]
 
 AddArguments = Callable[[argparse.ArgumentParser], None]
 Handler = Callable[[argparse.Namespace], int]
@@ -32,15 +31,6 @@ class Command:
     help: str
     add_arguments: AddArguments
     handler: Handler
-
-
-def _pending(milestone: int) -> Handler:
-    """A handler for a verb whose implementation is still ahead of us."""
-
-    def handler(args: argparse.Namespace) -> int:
-        raise SbxError(f"{args.verb}: not implemented yet (milestone {milestone})")
-
-    return handler
 
 
 def _seal_arguments(parser: argparse.ArgumentParser) -> None:
@@ -69,22 +59,22 @@ _COMMANDS: dict[str, Command] = {
     "seal": Command(
         help="snapshot a journal, hash it, and register it immutably",
         add_arguments=_seal_arguments,
-        handler=_pending(2),
+        handler=commands.seal,
     ),
     "run": Command(
         help="execute a strategy in the sealed cell and record the run",
         add_arguments=_run_arguments,
-        handler=_pending(4),
+        handler=commands.pending(4),
     ),
     "verify": Command(
         help="re-execute a recorded run and diff it byte-for-byte",
         add_arguments=_verify_arguments,
-        handler=_pending(6),
+        handler=commands.pending(6),
     ),
     "ls": Command(
         help="list sealed datasets and recorded runs",
         add_arguments=_ls_arguments,
-        handler=_pending(2),
+        handler=commands.ls,
     ),
 }
 
