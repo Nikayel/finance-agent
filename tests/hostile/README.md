@@ -40,7 +40,7 @@ refused and exits `0`. So the tests assert:
 | `strategy_fork_bomb.py` | Unbounded `os.fork()` where every child forks again | Contained via `RLIMIT_NPROC` |
 | `strategy_socket_connect.py` | Outbound TCP to a public IP and localhost ports | No egress; `exit 97` if any connect succeeds |
 | `strategy_dns_lookup.py` | Name resolution via `socket.getaddrinfo` | No DNS; `exit 97` if any name resolves |
-| `strategy_read_outside_workdir.py` | Reads `/etc/passwd`, `/`, `$HOME`, and the parent of its own cwd | Reads denied; `exit 97` (prints which) if any read succeeds |
+| `strategy_read_outside_workdir.py` | Reads `/etc/passwd`, `$HOME`, `~/.sbx`, `/tmp`, and the parent of its own cwd | Reads denied; `exit 97` (prints which) if any read succeeds |
 | `strategy_write_outside_workdir.py` | Creates files in `/tmp` and the parent of cwd | Writes denied; `exit 97` if any write succeeds |
 | `strategy_ignore_sigterm.py` | Swallows `SIGTERM`/`SIGINT`, then loops forever | Escalation to `SIGKILL` |
 | `strategy_fd_exhaustion.py` | Opens file descriptors without bound | Contained via `RLIMIT_NOFILE`; `exit 97` if it opens > 100000 |
