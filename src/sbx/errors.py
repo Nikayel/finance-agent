@@ -15,6 +15,15 @@ class NotCanonicalError(SbxError):
     """A value has no canonical encoding, so it must never reach a hash."""
 
 
+class ProtocolError(SbxError):
+    """The cell said something the host cannot act on.
+
+    The other end of this wire is untrusted code, so every malformed frame is
+    an expected condition rather than a bug: the host reports it and kills the
+    cell instead of trying to recover a conversation it has lost track of.
+    """
+
+
 class LedgerCorruptError(SbxError):
     """A committed ledger line will not parse.
 
